@@ -255,7 +255,95 @@ for line in sys.stdin:
             print(json.dumps(respuesta))
             sys.stdout.flush()
             continue
+             # ── SETEAR RETO (programa el chip una sola vez) ─────────────────
+        if accion == 'setear_reto':
+               inport   = cmd['inport']
+               reto_idx = cmd['reto_idx']
+               modo     = cmd.get('modo', 'anillo')   # 'anillo' o 'sin_anillo'
 
+               if modo == 'sin_anillo':
+                    fname = pathlib.Path('/home/smartlight/Oxel/retos_comparacion') / \
+                              f'challenges_comparacion_port{inport:02d}.json'
+                    with open(fname) as f:
+                         d = json.load(f)
+                    challenges = [{int(k): v for k, v in ch.items()} for ch in d['challenges']]
+                    reto = challenges[reto_idx]
+                    sl.set_driven_phases(reto, compensate_passive_phase=False)
+
+               else:  # anillo
+                    challenges, route_pucs_inport, dynamic_pucs, outports = cargar_retos(inport)
+                    reto = challenges[reto_idx]
+                    programar_ruta(inport, route_pucs_inport)
+                    sl.set_driven_phases(reto, compensate_passive_phase=False)
+
+               respuesta = {'status': 'ok', 'inport': inport, 'reto_idx': reto_idx, 'modo': modo}
+               print(json.dumps(respuesta))
+               sys.stdout.flush()
+               continue
+
+        # ── MEDIDA RAPIDA (solo lee potencias, sin reprogramar) ──────────
+        if accion == 'medida_rapida':
+            inport   = cmd['inport']
+            outports = [p for p in ACTIVE_PORTS if p != inport]
+
+            powers = sl.get_output_power(inport=inport, outport=outports)
+
+            respuesta = {
+                'inport':   inport,
+                'outports': outports,
+                'powers':   {str(k): v for k, v in powers.items()},
+            }
+            print(json.dumps(respuesta))
+            sys.stdout.flush()
+            continue
+        if accion == 'setear_reto_perturbado_B':
+               inport   = cmd['inport']
+               reto_idx = cmd['reto_idx']
+               delta    = float(cmd['delta'])
+
+               challenges, route_pucs_inport, dynamic_pucs, outports = cargar_retos(inport)
+               reto_base = challenges[reto_idx]
+
+               reto_pert = {
+                    puc_id: [(reto_base[puc_id][0] + delta) % (2.0 * 3.141592653589793),
+                              reto_base[puc_id][1]]
+                    for puc_id in dynamic_pucs
+               }
+               sl.set_driven_phases(reto_pert, compensate_passive_phase=False)
+
+               respuesta = {'status': 'ok', 'inport': inport, 'reto_idx': reto_idx,
+                              'delta': delta, 'n_pucs': len(reto_pert)}
+               print(json.dumps(respuesta))
+               sys.stdout.flush()
+               continue
+        if accion == 'get_meta_reto':
+               inport = cmd['inport']
+               challenges, route_pucs_inport, dynamic_pucs, outports = cargar_retos(inport)
+               respuesta = {
+                    'status': 'ok', 'inport': inport,
+                    'route_pucs':   list(route_pucs_inport),
+                    'dynamic_pucs': list(dynamic_pucs),
+                    'outports':     list(outports),
+                    'n_challenges': len(challenges),
+               }
+               print(json.dumps(respuesta)); sys.stdout.flush(); continue
+        if accion == 'get_challenge':
+               inport, reto_idx = cmd['inport'], cmd['reto_idx']
+               challenges, _, dynamic_pucs, _ = cargar_retos(inport)
+               reto = challenges[reto_idx]
+               respuesta = {
+                    'status': 'ok', 'inport': inport, 'reto_idx': reto_idx,
+                    'fases': {str(pid): float(reto[pid][0]) for pid in dynamic_pucs},
+               }
+               print(json.dumps(respuesta)); sys.stdout.flush(); continue
+
+          # Accion: setear_fases_dinamicas
+        if accion == 'setear_fases_dinamicas':
+               # cmd['fases'] = {str(puc_id): float}  (solo TBUs dinamicas; ruta intacta)
+               fases = {int(k): [float(v), 0.0] for k, v in cmd['fases'].items()}
+               sl.set_driven_phases(fases, compensate_passive_phase=False)
+               respuesta = {'status': 'ok', 'n_pucs': len(fases)}
+               print(json.dumps(respuesta)); sys.stdout.flush(); continue
         # ── MEDIDA NORMAL ────────────────────────────────────────────────
         inport   = cmd['inport']
         n_retos  = cmd['n_retos']
